@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>H3 Streaming VAE Decoder</title>
+<meta name="title-zh" content="H3 Streaming VAE Decoder：不训练、不等未来 latent 的流式解码">
+<meta name="title-en" content="H3 Streaming VAE Decoder: training-free streaming without future latents">
+<meta name="description" content="Training-free, latent-by-latent streaming decode for the H3 video VAE decoder, without any future latent.">
+<script>
+  (function () {
+    var d = document.documentElement, q = new URLSearchParams(location.search).get("lang"), l = null;
+    try { l = localStorage.getItem("h3blog.lang"); } catch (e) {}
+    d.dataset.lang = (q || l || "en") === "zh" ? "zh" : "en";
+  })();
+</script>
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  .post-head .kw { color: var(--text); font-weight: 600; }
+  .post-head .by { color: var(--muted); font-weight: 400; }
+  .post-head .by.team { margin-top: 4px; }
+  .topbar .gh {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    margin-left: 6px;
+    color: var(--text);
+    text-decoration: none;
+    flex: none;
+  }
+  .topbar .gh:hover { color: var(--accent-ink); }
+  .topbar .gh svg { width: 18px; height: 18px; display: block; }
+  a.repo {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-weight: 400;
+    text-decoration: none;
+  }
+  a.repo:hover { color: var(--text); }
+  a.repo svg { width: 15px; height: 15px; display: block; flex: none; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a class="name" href="#top">H3 Streaming VAE Decoder<small>Training Free · Streaming · Without Future Latent</small></a>
+  <nav class="nav" aria-label="sections">
+    <div class="nav-item">
+      <a href="#method"><span lang="zh">方法</span><span lang="en">Method</span><svg viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1l4 4 4-4"/></svg></a>
+      <div class="nav-sub">
+        <a href="#official"><span lang="zh">官方 decoder 的解码方式</span><span lang="en">The official decoder</span></a>
+        <a href="#stream"><span lang="zh">改成因果流式</span><span lang="en">Running it as a causal stream</span></a>
+        <a href="#v1"><span lang="zh">基础方案（V1）的结果</span><span lang="en">Results of the base version (V1)</span></a>
+        <a href="#flicker"><span lang="zh">亮度跳变的定量分析</span><span lang="en">Quantifying the jumps</span></a>
+        <a href="#v2"><span lang="zh">线性亮度校正</span><span lang="en">A linear correction</span></a>
+        <a href="#v3"><span lang="zh">第一个 latent</span><span lang="en">The first latent</span></a>
+      </div>
+    </div>
+    <a href="#solarwm"><span lang="zh">SolarWM 上的泛化</span><span lang="en">SolarWM</span></a>
+    <a href="#cost"><span lang="zh">计算量、速度与画质</span><span lang="en">Cost and quality</span></a>
+    <a href="#streamrender"><span lang="zh">和 StreamRender-H3 的讨论</span><span lang="en">Discussion with StreamRender-H3</span></a>
+    <a href="#conclusion"><span lang="zh">结论与局限</span><span lang="en">Conclusion</span></a>
+    <a href="#references"><span lang="zh">参考文献</span><span lang="en">References</span></a>
+  </nav>
+  <button type="button" class="toc-btn" aria-controls="toc" aria-expanded="false" aria-label="contents">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h7"/></svg><span lang="zh">目录</span><span lang="en">Contents</span>
+  </button>
+  <div class="segmented" role="group" aria-label="language">
+    <button type="button" data-set-lang="en">English</button>
+    <button type="button" data-set-lang="zh">中文</button>
+  </div>
+  <a class="gh" href="https://github.com/SolarX-Team/H3-Streaming-VAE-Decoder" aria-label="GitHub"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg></a>
+</div>
+
+<nav class="toc" id="toc" aria-label="contents">
+  <a href="#method"><span lang="zh">方法</span><span lang="en">Method</span></a>
+  <a class="sub" href="#official"><span lang="zh">官方 decoder 的解码方式</span><span lang="en">The official decoder</span></a>
+  <a class="sub" href="#stream"><span lang="zh">改成因果流式</span><span lang="en">Running it as a causal stream</span></a>
+  <a class="sub" href="#v1"><span lang="zh">基础方案（V1）的结果</span><span lang="en">Results of the base version (V1)</span></a>
+  <a class="sub" href="#flicker"><span lang="zh">亮度跳变的定量分析</span><span lang="en">Quantifying the jumps</span></a>
+  <a class="sub" href="#v2"><span lang="zh">线性亮度校正</span><span lang="en">A linear correction</span></a>
+  <a class="sub" href="#v3"><span lang="zh">第一个 latent</span><span lang="en">The first latent</span></a>
+  <a href="#solarwm"><span lang="zh">SolarWM 上的泛化</span><span lang="en">Generalization on SolarWM</span></a>
+  <a href="#cost"><span lang="zh">计算量、速度与画质</span><span lang="en">Compute, speed, quality</span></a>
+  <a href="#streamrender"><span lang="zh">和 StreamRender-H3 的讨论</span><span lang="en">Discussion with StreamRender-H3</span></a>
+  <a href="#conclusion"><span lang="zh">结论与局限</span><span lang="en">Conclusion and limitations</span></a>
+  <a href="#references"><span lang="zh">参考文献</span><span lang="en">References</span></a>
+</nav>
+
+<main>
+<article class="post">
+
+<header class="post-head">
+  <p class="eyebrow"><span lang="zh">MiniMax H3 · 视频 VAE</span><span lang="en">MiniMax H3 · Video VAE</span></p>
+  <h1>H3 Streaming VAE Decoder</h1>
+  <p class="kw"><span lang="zh">关键词：</span><span lang="en">Keywords: </span>Training Free · Streaming · Without Future Latent</p>
+  <p class="by"><span lang="zh">陈博宏、陈雅静、杜壹华、黄俊超、錢湦鉅</span><span lang="en">Bohong Chen, Yajing Chen, Yihua Du, Junchao Huang, Shengju Qian</span></p>
+  <p class="by team"><span lang="zh">SolarX-Team, 2026 年 10 月</span><span lang="en">SolarX-Team, October 2026</span></p>
+</header>
+
+<p lang="zh">H3 官方 VAE decoder <span class="cite">[<a href="#ref-1">1</a>]</span> 的窗口大小是 7、stride 是 5：解码当前 5 个 latent 对应的 17 帧时，还需要未来的 2 个 latent 一起参与。这种策略不光要等当前窗口的 5 个 latent 都生成完，还要等未来的 2 个 latent 也生成完才能解码，造成很大的延迟。</p>
+<p lang="en">The official H3 VAE decoder <span class="cite">[<a href="#ref-1">1</a>]</span> uses a window of 7 latents with stride 5: decoding the 17 frames of the current 5 latents also needs the next 2 latents. So decoding has to wait until all 5 latents of the current window are generated, and then until the 2 future latents are generated as well, which adds a lot of latency.</p>
+
+<p lang="zh">本文试图解决这个问题：在不训练、不改 checkpoint 权重的前提下，把 decoder 改成 latent by latent 的流式解码，每个 latent 一生成就解出它对应的帧，不依赖任何未来 latent。最终版在 MCL-JCV <span class="cite">[<a href="#ref-2">2</a>]</span> 上对原片的 PSNR 是 30.41 dB（官方 31.04 dB），计算量与离线解码基本持平。第一个 latent 生成后 0.04 s 就能看到第一帧；相比之下，H3官方解码首先要等计算所需的 7 个 latent 全部生成，然后再花 0.73 s 解码，才能看到生成的视频。</p>
+<p lang="en">This post tries to fix that. Without training and without changing the checkpoint, we turn the decoder into a latent-by-latent stream: every latent is decoded into its frames as soon as it is generated, without any future latent. On MCL-JCV <span class="cite">[<a href="#ref-2">2</a>]</span> the final version reaches 30.41 dB PSNR against the source (official: 31.04 dB) at about the same compute as offline decoding. Its first frame is ready 0.04 s after the first latent is generated, whereas official H3 decoding first has to wait until all 7 latents it needs have been generated and then spend another 0.73 s decoding before any of the video can be shown.</p>
+
+<!-- ================================================================= -->
+<h2 id="method"><span lang="zh">方法</span><span lang="en">Method</span></h2>
+
+<h3 id="official"><span lang="zh">官方 decoder 的解码方式</span><span lang="en">How the official decoder decodes</span></h3>
+
+<p lang="zh">H3 VAE decoder 本身是一个双向的 DiT 结构（36 层 ViT），一次接收 7 个 latent。前 5 个 latent 产生 17 帧（1 + 4 + 4 + 4 + 4），其中第一个 latent 抛弃 3 帧、只保留 1 帧；后面 2 个 latent 产生 5 帧（1 + 4），用于和下一个窗口做线性混合。</p>
+<p lang="en">The H3 VAE decoder is a bidirectional DiT (a 36-layer ViT) that takes 7 latents at a time. The first 5 latents produce 17 frames (1 + 4 + 4 + 4 + 4), where the first latent drops 3 frames and keeps only one; the last 2 latents produce 5 frames (1 + 4), which are linearly blended with the next window.</p>
+
+<p lang="zh">1 4 4 4 4 1 4 这个结构看起来有点奇怪，但它并不是 DiT 自己产生的。DiT 的输出就是均匀的 4 × 7 = 28 帧（<code>proj_out</code> 给每个 latent 都输出 4 帧），这个结构是编码和解码两边的约定拼出来的。编码器是时间方向压缩 4 倍的因果 3D CNN。因果视频 VAE 一般让第一帧单独占一个 latent，H3 在每一段上都这样做：视频按 17 帧一段编码，每段左边先补 3 帧，凑成 20 帧，正好是 5 个 latent，所以每段第一个 latent 对应的是 [P P P F0]，只有 1 帧真实画面。解码时，<code>decode_temporal</code> 把 28 帧切成 [0:20] 和 [20:28]，各丢掉开头 3 帧（<code>frame_pre_padding = 3</code>），丢掉的正是两个段首 latent 解出来的补帧。</p>
+<p lang="en">The 1 4 4 4 4 1 4 structure looks odd, but the DiT does not produce it by itself. Its output is a uniform 4 × 7 = 28 frames (<code>proj_out</code> emits 4 frames for every latent); the structure comes from conventions on the encoding and decoding sides. The encoder is a causal 3D CNN with 4× temporal compression. Causal video VAEs usually give the first frame a latent of its own, and H3 does this in every chunk: it encodes the video in 17-frame chunks and left-pads each chunk with 3 frames to 20 frames, exactly 5 latents, so the first latent of every chunk covers [P P P F0], a single real frame. At decode time, <code>decode_temporal</code> splits the 28 frames into [0:20] and [20:28] and drops the first 3 frames of each (<code>frame_pre_padding = 3</code>), which are exactly the padding frames decoded from the two chunk-start latents.</p>
+
+<figure class="wide num" data-anim="official">
+  <div class="anim"></div>
+  <figcaption class="cap"><span lang="zh">官方 decoder 的一个窗口。编码时每段左边补 3 帧，解码后再把这 3 帧切掉，于是 7 个 latent 得到 1 4 4 4 4 加 1 4。</span><span lang="en">One window of the official decoder. Each chunk is left-padded with 3 frames at encode time and those frames are cut off again after decoding, which is how 7 latents turn into 1 4 4 4 4 plus 1 4.</span></figcaption>
+</figure>
+
+<p lang="zh">窗口每次右移 5 个 latent，所以段首 latent 总是落在窗口的 slot 0 和 slot 5，这一点在后面分析亮度跳变时很关键。对未来 latent 的依赖也来自这里：36 层里每一层都是 7 个 latent 之间的全连接 attention，z0–z4 的画面依赖 z5、z6。官方代码里的 <code>_decode_temporal_streaming</code> 只是省显存的写法，它仍然要先拿到全部 latent，再一窗一窗地解，延迟上没有区别。</p>
+<p lang="en">The window moves right by 5 latents at a time, so chunk-start latents always sit at slot 0 and slot 5 of the window, which matters a lot when we look at the brightness jumps later. The dependency on future latents also comes from here: each of the 36 layers runs full attention over the 7 latents, so the frames of z0–z4 depend on z5 and z6. The official <code>_decode_temporal_streaming</code> only saves memory; it still takes all latents up front and decodes window by window, so the latency is the same.</p>
+
+<h3 id="stream"><span lang="zh">改成因果流式</span><span lang="en">Running it as a causal stream</span></h3>
+
+<p lang="zh">当前最直接的思路，是把这个 VAE decoder 直接当成流式的 causal 模型来处理：ckpt 本身的权重不动，只改变推理的架构，同时推理的方式尽可能和原来的解码策略一致。具体有 5 条：</p>
+<p lang="en">The most direct idea is to treat the VAE decoder as a causal streaming model as it is: keep the checkpoint weights untouched, change only the inference procedure, and keep that procedure as close to the original decoding scheme as possible. Concretely:</p>
+<ol lang="zh">
+  <li>窗口几何不变：仍然是 7 格窗口、起点是 5 的倍数。H3 的 RoPE 时间坐标是按输入的 latent 个数归一化到 [−1, 1] 的，如果把没填满的窗口（比如只有 3 个 latent）直接送进去，这几个 latent 会被当成一个 3 格窗口，位置和它们在完整窗口里不一样。所以不管窗口里现在有几个 latent，每一格都按它在完整 7 格窗口里的位置计算 RoPE 坐标。</li>
+  <li>还没生成的 latent 对应的格子留空，不用复制的 latent 去填。</li>
+  <li>每个 latent 到达时，只对它自己那一格做一次前向，attention 读取前面各格缓存的 K/V。K/V 按层缓存，存的是乘 RoPE 之前的值，读出来时再按它当前所在的 slot 加位置编码。</li>
+  <li>每 5 个 latent 窗口右移一次，重叠的 2 个 latent 从 slot 5、6 变成 slot 0、1。位置变了，所以在新位置重算一次它们的 K/V（prefill），不再出帧。</li>
+  <li>每个 latent 算完立刻输出它的 1 帧（段首）或 4 帧，之后不再修改，也不做时间方向的混合。空间上沿用官方的分块（tile）解码：decoder 并不一次处理整幅画面，而是把画面切成 256×256 像素、彼此至少重叠 64 像素的小块，1344×768 上是 4 行 × 7 列共 28 块；每块单独送进 decoder，attention 只在块内计算，解完后重叠部分用线性渐变的权重混合，拼回整幅画面。</li>
+</ol>
+<ol lang="en">
+  <li>The window geometry stays the same: a 7-slot window starting at a multiple of 5. H3 normalizes the RoPE time coordinates to [−1, 1] by the number of latents in the input, so a partly filled window fed in as it is (say, with 3 latents) would be treated as a 3-slot window, and its latents would get different positions from the ones they have in the full window. So however many latents the window currently holds, every slot gets the RoPE coordinate of its position in the full 7-slot window.</li>
+  <li>Slots whose latent has not been generated yet are left empty instead of being filled with copies.</li>
+  <li>When a latent arrives, only its own slot goes through the network, and attention reads the cached K/V of the earlier slots. K/V is cached per layer before RoPE; the positional encoding for the slot's current position is applied when it is read.</li>
+  <li>Every 5 latents the window moves right, and the 2 overlapping latents move from slots 5 and 6 to slots 0 and 1. Their positions have changed, so their K/V is recomputed at the new positions (a prefill) without emitting frames again.</li>
+  <li>Each latent emits its 1 frame (chunk start) or 4 frames as soon as it is computed. Emitted frames are never revised, and there is no blending along time. Spatially we keep the official tiled decoding: the decoder does not process the whole frame at once but cuts it into 256×256-pixel tiles that overlap by at least 64 pixels, 4 rows × 7 columns = 28 tiles at 1344×768. Each tile goes through the decoder on its own, so attention stays within a tile, and the overlapping parts are blended with linearly ramped weights to rebuild the full frame.</li>
+</ol>
+
+<figure class="wide num" data-anim="stream">
+  <div class="anim"></div>
+  <figcaption class="cap"><span lang="zh">流式解码的前 12 个 latent。每个 latent 生成后马上解出它的帧；官方 decode 的每个窗口都要等到窗口里第 7 个 latent 生成。</span><span lang="en">The first 12 latents of the stream. Each latent is decoded into frames right after it is generated; every window of the official decode has to wait until its 7th latent exists.</span></figcaption>
+</figure>
+
+<p lang="zh">第 2 条“未来格留空”是对比了几种做法之后定下来的。同样的 7 格窗口，在 MCL-JCV 30 段上对原片的像素 PSNR（没有经过 mp4 编码）：</p>
+<p lang="en">Rule 2, leaving future slots empty, was chosen after comparing a few alternatives. Same 7-slot window, pixel PSNR against the source on the 30 MCL-JCV clips (no mp4 encoding in between):</p>
+<div class="table"><table>
+  <thead><tr><th><span lang="zh">未来格和换窗的处理</span><span lang="en">future slots and window shift</span></th><th>PSNR</th></tr></thead>
+  <tbody>
+    <tr><td><span lang="zh">未来格放最新 latent 的复制，真的跑一遍</span><span lang="en">future slots hold copies of the newest latent, actually computed</span></td><td>29.96 dB</td></tr>
+    <tr><td><span lang="zh">未来格放复制的 K/V，不真跑</span><span lang="en">future slots hold copied K/V, not computed</span></td><td>28.90 dB</td></tr>
+    <tr><td><span lang="zh">换窗时把旧 K/V 原样搬到新 slot，不 prefill</span><span lang="en">on a shift, old K/V is moved to the new slots without a prefill</span></td><td>29.68 dB</td></tr>
+    <tr class="final"><td><span lang="zh">未来格留空，换窗时 prefill（V1）</span><span lang="en">empty future slots, prefill on a shift (V1)</span></td><td>30.57 dB</td></tr>
+  </tbody>
+</table></div>
+<p lang="zh">看起来 decoder 对“看不见的未来”比对“假的未来”更宽容。另外，把未来 latent 真实的 K/V 也喂给同一套代码（这样就不是因果的了），输出和官方 decode 的 PSNR 是 50.19 dB，只剩 bf16 的数值误差。所以后面看到的差异都来自看不见未来本身，而不是实现上的问题。</p>
+<p lang="en">The decoder seems to tolerate an unseen future better than a fake one. As a check, feeding the true K/V of the future latents into the same code (which is no longer causal) reproduces the official decode at 50.19 dB PSNR, i.e. bf16 noise. So the differences below come from not seeing the future, not from the implementation.</p>
+
+<h3 id="v1"><span lang="zh">基础方案（V1）的结果</span><span lang="en">Results of the base version (V1)</span></h3>
+
+<p lang="zh">我们将按上述 5 条规则实现的流式解码记为 V1。V1 在 MCL-JCV 30 段视频（1344×768，与原片对比）上的结果如下：</p>
+<p lang="en">We call the stream decoder built from the five rules above V1. Its results on the 30 MCL-JCV clips (1344×768, compared against the source) are:</p>
+<div class="table"><table>
+  <thead><tr><th></th><th>PSNR&nbsp;↑</th><th>SSIM&nbsp;↑</th><th>LPIPS&nbsp;↓</th><th>rFVD&nbsp;↓</th><th><span lang="zh">对官方 PSNR&nbsp;↑</span><span lang="en">PSNR vs official&nbsp;↑</span></th><th><span lang="zh">亮度跳变 p95&nbsp;↓</span><span lang="en">luma-jump p95&nbsp;↓</span></th><th><span lang="zh">要等的未来 latent</span><span lang="en">future latents needed</span></th></tr></thead>
+  <tbody>
+    <tr><td><span class="dot official"></span><span lang="zh">官方 decode</span><span lang="en">Official decode</span></td><td>31.04</td><td>0.879</td><td>0.0745</td><td>13.3</td><td>—</td><td>0.18</td><td>2</td></tr>
+    <tr><td><span class="dot v1"></span>V1</td><td>30.26</td><td>0.869</td><td>0.0771</td><td>19.1</td><td>37.16</td><td>1.95</td><td>0</td></tr>
+  </tbody>
+</table></div>
+
+<figure class="wide num" data-player='{"set":"mcl","clip":"SRC01","sources":["src","official","v1"],"metric":"p95","hints":true}'>
+  <figcaption class="cap"><span lang="zh">MCL-JCV 上的 5 段视频：原视频、官方 decode 与 V1 逐帧同步播放。每一路下方右侧是这段视频的亮度跳变 p95（定义见下一节）。</span><span lang="en">Five MCL-JCV clips: source, official decode and V1, synced frame by frame. Under each video on the right is the clip's luma-jump p95 (defined in the next section).</span></figcaption>
+</figure>
+
+<p lang="zh">可以观察到此时整体画面已经接近让人满意，除了视频背景中有周期性的亮度跳变带来的闪烁，在 SRC10、SRC20 这种有大片平坦区域的视频上最明显。另外 V1 的第一帧明显偏暗，这个问题后面单独讨论。</p>
+<p lang="en">The picture is already close to satisfying overall, except for a flicker in the background caused by periodic brightness jumps, most visible on clips with large flat areas such as SRC10 and SRC20. V1's first frame is also clearly too dark; we come back to that separately.</p>
+
+<h3 id="flicker"><span lang="zh">亮度跳变的定量分析</span><span lang="en">Quantifying the brightness jumps</span></h3>
+
+<p lang="zh">我们用每一帧的平均亮度（BT.601 luma，8-bit 灰阶）来量化闪烁。同一帧上，流式输出与官方输出的平均亮度之差，就是这一帧的亮度偏差。下图是 V1 在单段视频上的逐帧偏差，可以看到它不是随机噪声，而是跟着 17 帧的 chunk 周期起伏。</p>
+<p lang="en">We quantify the flicker with the mean brightness of each frame (BT.601 luma, 8-bit levels). The difference between the stream's and the official output's mean luma on the same frame is that frame's offset. The figure below shows V1's per-frame offset on one clip: it is not random noise, it rises and falls with the 17-frame chunk period.</p>
+
+<figure class="fig num">
+  <div data-chart="offset" data-variants="v1" data-clip="SRC10" data-lim="4"></div>
+  <figcaption class="cap"><span lang="zh">V1 每一帧相对官方的亮度偏差。第一帧偏暗太多（SRC10 上是 −21 级），超出了坐标范围，图上直接标了数值。</span><span lang="en">V1's per-frame offset against official. The first frame is far too dark (−21 levels on SRC10) and goes off the chart; its value is printed instead.</span></figcaption>
+</figure>
+
+<p lang="zh">把所有 chunk 按 chunk 内的帧位置叠起来（只用第 3 个 chunk 以后，避开视频开头），再标出每一帧是窗口里哪个 slot 解出来的：</p>
+<p lang="en">Stacking all chunks by frame position inside the chunk (third chunk onwards, away from the start of the video) and marking which window slot produced each frame:</p>
+
+<figure class="fig num">
+  <div data-chart="profile" data-sets="mcl:v1" data-perclip="1"></div>
+  <figcaption class="cap"><span lang="zh">V1 在一个 chunk 内 17 个帧位置上的平均偏差。稳态时一个 chunk 的 17 帧来自 5 个 slot：第 1 帧来自上一个窗口的 slot 5，接下来 4 帧来自它的 slot 6，其余 12 帧来自新窗口的 slot 2、3、4。柱子是 30 段的平均，细线是每段视频。</span><span lang="en">V1's mean offset at the 17 frame positions of a chunk. In steady state the 17 frames of a chunk come from 5 slots: the first from slot 5 of the previous window, the next 4 from its slot 6, and the remaining 12 from slots 2, 3 and 4 of the new window. Bars are the mean over 30 clips, thin lines individual clips.</span></figcaption>
+</figure>
+
+<p lang="zh">规律很整齐：slot 3、slot 4 的帧偏亮，平均 +0.54 和 +1.00 级；紧接着下一个 chunk 的第一帧（slot 5）偏暗，平均 −0.63 级。所以每过 17 帧，在 chunk 边界上就有一次约 1.6 级的跳变，30 fps 下大约每秒 1.8 次。这三个 slot 的偏差方向在 30 段视频里完全一致：</p>
+<p lang="en">The pattern is very regular. Frames from slots 3 and 4 are too bright, +0.54 and +1.00 levels on average, and the first frame of the next chunk (slot 5) is too dark, −0.63 levels. So every 17 frames there is a jump of about 1.6 levels at the chunk boundary, roughly 1.8 times per second at 30 fps. For these three slots, the sign of the offset is the same in all 30 clips:</p>
+<div class="table"><table>
+  <thead><tr><th>slot</th><th><span lang="zh">chunk 内的帧</span><span lang="en">frames in the chunk</span></th><th><span lang="zh">平均偏差（灰阶）</span><span lang="en">mean offset (levels)</span></th><th><span lang="zh">视频间的标准差</span><span lang="en">std across clips</span></th><th><span lang="zh">与平均同号的视频</span><span lang="en">clips with the same sign</span></th></tr></thead>
+  <tbody>
+    <tr><td>slot 5</td><td>r = 0</td><td>−0.63</td><td>0.31</td><td>100%</td></tr>
+    <tr><td>slot 6</td><td>r = 1–4</td><td>+0.03</td><td>0.06</td><td>73%</td></tr>
+    <tr><td>slot 2</td><td>r = 5–8</td><td>0.00</td><td>0.18</td><td>57%</td></tr>
+    <tr><td>slot 3</td><td>r = 9–12</td><td>+0.54</td><td>0.29</td><td>100%</td></tr>
+    <tr><td>slot 4</td><td>r = 13–16</td><td>+1.00</td><td>0.49</td><td>100%</td></tr>
+  </tbody>
+</table></div>
+<p lang="zh">为了有一个能横向比较的数，我们定义亮度跳变 p95：每帧的偏差 bias(t) 取重建帧与原视频同一帧的平均亮度之差，在 token 边界（chunk 内 r = 0、1、5、9、13 这几帧）上取 |bias(t) − bias(t−1)|，从第 2 帧开始统计，每段视频取 95 分位，再取 30 段的中位数。官方 decode 自己也有一点边界跳变，是 0.18；V1 是 1.95，最差的一段 3.10。第 0→1 帧的跳变单独报告。</p>
+<p lang="en">To have a single number to compare, we define the luma-jump p95. The per-frame bias(t) is the mean luma of the reconstruction minus that of the same source frame. At token boundaries (frames r = 0, 1, 5, 9, 13 of each chunk) we take |bias(t) − bias(t−1)| from frame 2 on, the 95th percentile per clip, and the median over the 30 clips. The official decode has small boundary jumps of its own: 0.18. V1 has 1.95, with 3.10 on the worst clip. The frame 0→1 jump is reported separately.</p>
+
+<h3 id="v2"><span lang="zh">线性亮度校正</span><span lang="en">A linear brightness correction</span></h3>
+
+<p lang="zh">我们发现，亮度跳变的原因跟 attention 中的 slot 位置极度相关，因此用 14 段视频来近似学习一个亮度的线性变化，对已经生成的帧进行亮度调节。之所以认为这样做可行，是因为这个偏差有三个性质。</p>
+<p lang="en">We found that the brightness jumps are tied very closely to the slot positions in attention, so we fit an approximate linear brightness model on 14 videos and use it to adjust frames after they are decoded. We expected this to work because the offset has three properties.</p>
+
+<p lang="zh">第一，它由 slot 位置决定，而不是由画面内容决定。为了验证这一点，我们在单个窗口上做了 attention 遮挡实验：每次选窗口里的一个 slot 作为被测 slot，用 attention mask 让它看不到其余 slot 中的一部分，再测它解出的帧相对完整窗口解码的亮度偏移。流式解码本身就是其中一种遮挡：每个 slot 只能看到它自己和排在它前面的 slot。在 71 种遮挡条件下，偏移几乎只由一个量决定，即被测 slot 能看到的 slot 中，段首位置（slot 0 和 slot 5）所占的比例。完整窗口里这个比例总是 2/7，偏移为 0；比例越高越暗，越低越亮。即使把 slot 0、5 上的段首 latent 换成普通 latent，或者 7 个 slot 全放同一个 latent，点仍然落在同一条线上，说明起作用的是位置本身，而不是这两个位置上的内容。</p>
+<p lang="en">First, it is set by slot position, not by picture content. To check this, we ran attention-masking experiments on single windows. Each time one slot of the window is probed: the attention mask hides some of the other slots from it, and we measure the brightness offset of its decoded frames against the full-window decode. Streaming is itself one such mask, since every slot can see only itself and the slots before it. Across 71 masking conditions, a single quantity almost fully determines the offset: the share of chunk-start positions (slots 0 and 5) among the slots the probed slot can see. In the full window that share is always 2/7 and the offset is 0; a higher share comes out darker, a lower share brighter. Even when the chunk-start latents at slots 0 and 5 are replaced with ordinary latents, or the same latent is put in all 7 slots, the points stay on the same line, so what matters is the position itself, not the content at those positions.</p>
+
+<figure class="fig num">
+  <div data-chart="share"></div>
+  <figcaption class="cap"><span lang="zh">被测 slot 的亮度偏移与它看得见的段首位置比例。每个点是一种遮挡条件（256 px tile 上的平均），71 个条件上 r = −0.93。</span><span lang="en">Brightness offset of the probed slot against the share of chunk-start positions it can see. Each point is one masking condition (mean over 256 px tiles); r = −0.93 over 71 conditions.</span></figcaption>
+</figure>
+
+<p lang="zh">slot 0 和 slot 5 正是段首 latent 所在的位置。段首 latent 只编码了 1 帧真实画面，探针显示它的响应只有普通 latent 的 0.82 倍左右。我们的理解是，decoder 在训练中学会了按每个 token 看到的段首比例做一种曝光补偿：官方窗口里比例总是 2/7，补偿是平衡的；流式截断以后比例变了，补偿就失衡了。这个解释还有没弄清楚的地方，好在校正只依赖测出来的规律。流式时每个 slot 看到的比例是固定的（slot 3 是 1/4，slot 4 是 1/5，slot 5 是 2/6），所以偏差也是固定的。</p>
+<p lang="en">Slots 0 and 5 are exactly where the chunk-start latents sit. A chunk-start latent encodes a single real frame, and our probes show its response is only about 0.82× that of an ordinary latent. Our reading is that the decoder learned during training to apply a kind of exposure compensation based on the share of chunk-start positions each token sees. In the official window that share is always 2/7 and the compensation is balanced; under causal truncation the share changes and the compensation goes out of balance. Parts of this explanation are still unclear, but the correction relies only on the measured pattern. In streaming, the share each slot sees is fixed (1/4 for slot 3, 1/5 for slot 4, 2/6 for slot 5), so its offset is fixed too.</p>
+
+<p lang="zh">第二，它更像增益误差，而不是一个常数偏移。把画面切成 64×64 的小块来看，偏移随这一块的亮度近似线性地增大：很暗的地方几乎为 0，越亮偏得越多。如果只减一个常数，暗部会被拉过头，亮部又补不够。</p>
+<p lang="en">Second, it behaves like a gain error rather than a constant offset. Cut the frame into 64×64 cells and the offset grows roughly linearly with the cell's brightness: almost 0 in very dark areas, larger the brighter the cell. Subtracting a constant would over-correct the dark areas and under-correct the bright ones.</p>
+
+<figure class="fig num">
+  <div data-chart="gain" data-slot="4"></div>
+  <figcaption class="cap"><span lang="zh">偏移与局部亮度，留出的 SRC15–30（没有参与拟合）。以 slot 4 为例，偏移几乎过原点，随亮度升到约 +1.7 级，最亮的一档接近 255 饱和，略有回落。蓝色实线是在 SRC01–14 上拟合的 a + b·x（这里画的是 luma 上的示意，实际按 RGB 通道和帧位置分别查表），虚线是只减一个常数。</span><span lang="en">Offset against local brightness on the held-out SRC15–30 (not used for fitting). For slot 4 the offset nearly passes through the origin and rises to about +1.7 levels; the brightest bin dips slightly as it nears 255. Solid blue line: a + b·x fitted on SRC01–14 (shown in luma for illustration; the actual table is per RGB channel and frame position). Dashed: a single constant.</span></figcaption>
+</figure>
+
+<p lang="zh">第三，它不依赖未来。偏移只取决于 slot（流式时已知）和当前帧自己的亮度（刚解出来就有）；探针里替换未来 latent 的内容，偏移不变。所以可以在出帧的时候直接把它减掉。</p>
+<p lang="en">Third, it does not depend on the future. The offset depends only on the slot, which is known while streaming, and on the brightness of the current frame, which is available as soon as it is decoded; replacing the content of future latents in the probes leaves it unchanged. So it can be subtracted at the moment the frame is emitted.</p>
+
+<p lang="zh">于是 V2 在 V1 的基础上，对每一帧做 out ← out − (a + b·x)。x 是每个像素自己的值，3 个通道分开算；a、b 按 slot、通道和 latent 内的帧位置查表，系数是在流式解码自己的输出上、按 64×64 小块的平均拟合的。校正放在空间 tile 混合之后、反归一化之前，是一步逐像素运算，每 4 帧约 0.21 ms。第 0 帧的那组系数多一个二次项，out ← out − (a + b·x + c·x²)，原因在下一节。系数一共 231 个数：第一个窗口（z0–z5，18 帧）每个通道每一帧一组 a、b，108 个，加上第 0 帧每个通道一个 c，3 个；稳态是 slot 2–6 × 3 个通道 × 4 个帧位置，120 个。全部只用 SRC01–14 这 14 段拟合，SRC15–30 留作测试。在留出的视频上，slot 3、4、5 的帧平均残差从 0.66 / 1.09 / 0.66 级降到 0.35 / 0.33 / 0.26 级；只减常数的话是 0.42 / 0.58 / 0.35 级。</p>
+<p lang="en">V2 therefore adds one step to V1: every frame gets out ← out − (a + b·x). Here x is the value of each pixel, per channel; a and b are looked up by slot, channel and frame position inside the latent, and they are fitted on 64×64 cell means of the stream's own output. The correction runs after spatial tile blending and before de-normalization; it is a single per-pixel operation and costs about 0.21 ms per 4 frames. Frame 0's coefficients have an extra quadratic term, out ← out − (a + b·x + c·x²), for reasons given in the next section. There are 231 coefficients in total: one a, b pair per channel and frame for the first window (z0–z5, 18 frames), 108 numbers, plus one c per channel for frame 0, 3 numbers; and slots 2–6 × 3 channels × 4 frame positions for steady state, 120 numbers. All of them are fitted on the 14 clips SRC01–14 only; SRC15–30 are held out. On the held-out clips the frame-mean residual of slots 3, 4 and 5 drops from 0.66 / 1.09 / 0.66 to 0.35 / 0.33 / 0.26 levels; subtracting a constant would give 0.42 / 0.58 / 0.35.</p>
+
+<figure class="fig num">
+  <div data-chart="profile" data-sets="mcl:v1,mcl:v2"></div>
+  <figcaption class="cap"><span lang="zh">chunk 内的平均偏差，V1 与 V2。V2 把 5 个 slot 的平均偏差都压到了约 ±0.05 级以内。</span><span lang="en">Mean offset inside a chunk, V1 and V2. V2 brings the mean offset of all 5 slots within about ±0.05 levels.</span></figcaption>
+</figure>
+
+<div class="table"><table>
+  <thead><tr><th><span lang="zh">亮度跳变 p95</span><span lang="en">luma-jump p95</span><small><span lang="zh">中位数 / 最差一段</span><span lang="en">median / worst clip</span></small></th><th><span lang="zh">训练集</span><span lang="en">training set</span><small>SRC01–14</small></th><th><span lang="zh">测试集</span><span lang="en">test set</span><small>SRC15–30</small></th><th><span lang="zh">全部</span><span lang="en">all</span><small><span lang="zh">30 段</span><span lang="en">30 clips</span></small></th></tr></thead>
+  <tbody>
+    <tr><td><span class="dot official"></span><span lang="zh">官方 decode</span><span lang="en">Official decode</span></td><td>0.18 / 0.48</td><td>0.19 / 0.73</td><td>0.18 / 0.73</td></tr>
+    <tr><td><span class="dot v1"></span>V1</td><td>2.01 / 2.94</td><td>1.82 / 3.10</td><td>1.95 / 3.10</td></tr>
+    <tr class="final"><td><span class="dot v2"></span>V2</td><td>0.92 / 1.66</td><td>0.86 / 1.86</td><td>0.89 / 1.86</td></tr>
+  </tbody>
+</table></div>
+<p lang="zh">p95 从 1.95 降到 0.89，训练集 0.92、测试集 0.86，没有过拟合。剩下的有一部分来自视频开头的第一个窗口，下一节再处理。PSNR 从 30.26 到 30.37 dB，对官方 PSNR 从 37.16 到 37.98 dB，rFVD 从 19.1 到 17.7。</p>
+<p lang="en">p95 drops from 1.95 to 0.89, with 0.92 on the training set and 0.86 on the test set, so there is no overfitting. Part of what remains comes from the first window at the start of the video, which the next section deals with. PSNR goes from 30.26 to 30.37 dB, PSNR against official from 37.16 to 37.98 dB, and rFVD from 19.1 to 17.7.</p>
+
+<figure class="wide num" data-player='{"set":"mcl","clip":"SRC01","sources":["official","v1","v2"],"metric":"p95","wipe":0.667}'>
+  <figcaption class="cap"><span lang="zh">官方 decode、V1 与 V2。V2 背景里的周期闪烁基本消失了，第 0 帧也不再偏暗。</span><span lang="en">Official decode, V1 and V2. The periodic background flicker is essentially gone in V2, and frame 0 is no longer too dark.</span></figcaption>
+</figure>
+
+<p lang="zh">可以看到当前的对比结果已经非常好了。剩下的问题在视频开头的第一个窗口（前 22 帧）：z2–z4 的 12 帧整体偏亮 0.6–1.2 级，到第 17 帧才回落，这一下在 SRC20 上是 −2.0 级，和 V1 稳态时 chunk 边界上的跳变差不多大。</p>
+<p lang="en">The comparison already looks very good. What is left is in the first window at the start of the video (the first 22 frames): the 12 frames of z2–z4 come out 0.6–1.2 levels too bright and only settle at frame 17, a drop of −2.0 levels on SRC20, about as large as V1's jumps at chunk boundaries in steady state.</p>
+
+<h3 id="v3"><span lang="zh">第一个 latent</span><span lang="en">The first latent</span></h3>
+
+<p lang="zh">考虑到现存的亮度跳变只在开头第一个窗口出现，我们怀疑是第一个 latent 的原因。从第二个窗口开始，slot 0、1 都是用已经到达的真实 latent 在新位置 prefill 出来的，K/V 来自真实的上下文；只有第一个窗口的 slot 0 是在窗口里还什么都没有的时候算的。</p>
+<p lang="en">Since the remaining brightness jumps show up only in the first window at the start of the video, we suspected the first latent. From the second window on, slots 0 and 1 are prefilled at their new positions from real latents that have already arrived, so their K/V comes from real context. Only slot 0 of the first window is computed while the window holds nothing else.</p>
+
+<p lang="zh">z0 独自一格时，它看得见的 token 里段首位置占 100%，远高于 2/7，按前面的规律会严重偏暗：V1 的第 0 帧平均暗 12.5 级。而且暗多少跟着画面亮度走，30 段上的相关系数是 −0.97，最暗的一段只差 1.8 级，最亮的一段差 24.8 级。只用 a + b·x 的话，留出的 SRC15–30 上 64×64 小块的亮度误差 RMS 还有 3.54 级，所以第 0 帧的系数多一项 c·x²，误差降到 2.38 级。V2 用的就是这组系数，第 0 帧对官方的亮度 PSNR 从 24.6 dB 升到 33.5 dB。</p>
+<p lang="en">Alone in its slot, z0 sees chunk-start positions as 100% of its context, far above 2/7, so by the rule above it comes out very dark: V1's frame 0 is 12.5 levels too dark on average. How much darker follows the brightness of the picture, with r = −0.97 over the 30 clips: 1.8 levels on the darkest clip and 24.8 on the brightest. With a + b·x alone, the held-out SRC15–30 still have an RMS luma error of 3.54 levels on 64×64 cells, so frame 0's coefficients get the extra c·x² term, which brings it down to 2.38 levels. V2 uses these coefficients, and its frame 0 goes from 24.6 to 33.5 dB luma PSNR against official.</p>
+
+<p lang="zh">但 z0 的 K/V 也是这样独自算出来的，而且之后一直留在 cache 里，直到换窗时 slot 0 被真实的 latent 重新 prefill，第一个窗口里 z1–z6 都要读它。z1 只看得见 slot 0 和它自己，这份 K/V 占了一半的上下文，所以 z1 的 4 帧和官方逐帧比的亮度 PSNR 只有 33.9 dB，平均亮度却只差 0.34 级：差的不是亮度，而是细节。误差集中在物体的边缘，第 1 帧最大，之后逐帧变小。z2–z4 则是整体偏亮，也就是上面看到的那 0.6–1.2 级。</p>
+<p lang="en">But z0's K/V was computed alone in the same way, and it stays in the cache until slot 0 is prefilled from real latents at the window shift, so all of z1–z6 in the first window read it. z1 sees only slot 0 and itself, so that K/V makes up half of its context, and z1's 4 frames reach only 33.9 dB luma PSNR against official while their mean brightness is off by just 0.34 levels: what differs is detail, not brightness. The error sits on object edges, is largest in frame 1 and shrinks frame by frame. z2–z4 instead come out too bright overall, by the 0.6–1.2 levels seen above.</p>
+
+<p lang="zh">因此 V3 在 V2 的基础上多做一步：计算第二个 latent 的时候，把第一个 latent 对应位置（slot 0）的 K/V 和 z1 一起重新计算一次，cache 里的 slot 0 换成用真实上下文算出来的 K/V。第 0 帧已经输出了，不再修改；从 z2 开始，每个 latent 又只算它自己这一格，z0、z1 都不再重算。这样每段视频只多算 1 格，z1 那一步大约是稳态一步的两倍。下面先是 V3 在视频开头的三步，然后是 V1、V2、V3 在第一个窗口里的对比。</p>
+<p lang="en">V3 therefore adds one step to V2: when the second latent is computed, the K/V of the first latent's position (slot 0) is recomputed together with z1, and slot 0 in the cache is replaced by K/V computed from real context. Frame 0 has already been shown and is left as it is; from z2 on, each latent again computes only its own slot, and neither z0 nor z1 is recomputed. This costs just one extra slot per video, and the z1 step takes about twice a steady step. Below are V3's first three steps, followed by a comparison of V1, V2 and V3 over the first window.</p>
+
+<figure class="wide num" data-anim="v3start">
+  <div class="anim"></div>
+  <figcaption class="cap"><span lang="zh">V3 在视频开头的三步。z1 到达时，slot 0 和 z1 一起重算；z2 到达时只算 z2，z0、z1 都不再重算，之后和 V1、V2 一样。</span><span lang="en">V3's first three steps. When z1 arrives, slot 0 is recomputed together with z1; when z2 arrives, only z2 is computed and neither z0 nor z1 is recomputed. From then on it is the same as V1 and V2.</span></figcaption>
+</figure>
+
+<figure class="fig num">
+  <div data-chart="first" data-variants="v1,v2,v3" data-lo="-4" data-hi="4"></div>
+  <figcaption class="cap"><span lang="zh">视频开头 22 帧（第一个窗口）相对官方的偏差，色带是 30 段的 10–90% 分位，顶部标的是每一帧所属的 latent。V1 第 0 帧暗 12.5 级（超出坐标范围），之后逐个 slot 变亮；V2 第 0 帧正常，z2–z4 仍偏亮 0.6–1.2 级，到第 17 帧回落；V3 这 22 帧的平均偏差都在 ±0.2 级以内。</span><span lang="en">Offset against official over the first 22 frames (the first window); bands are the 10–90% range over 30 clips, and the labels on top give each frame's latent. V1: frame 0 is 12.5 levels too dark (off the chart), then the window brightens slot by slot. V2: frame 0 is fine, but z2–z4 are still 0.6–1.2 levels too bright and settle at frame 17. V3: all 22 frames are within ±0.2 levels on average.</span></figcaption>
+</figure>
+
+<div class="table"><table>
+  <thead><tr><th></th><th><span lang="zh">第 0 帧偏差</span><span lang="en">frame 0 offset</span></th><th><span lang="zh">第 0→1 帧跳变</span><span lang="en">frame 0→1 jump</span><small><span lang="zh">中位数</span><span lang="en">median</span></small></th><th><span lang="zh">z1 的 4 帧</span><span lang="en">z1's 4 frames</span><small><span lang="zh">对官方亮度 PSNR</span><span lang="en">luma PSNR vs official</span></small></th><th><span lang="zh">亮度跳变 p95</span><span lang="en">luma-jump p95</span></th><th>PSNR</th><th>rFVD</th></tr></thead>
+  <tbody>
+    <tr><td><span class="dot v1"></span>V1</td><td>−12.45</td><td>+11.11</td><td>33.6</td><td>1.95</td><td>30.26</td><td>19.1</td></tr>
+    <tr><td><span class="dot v2"></span>V2</td><td>−0.47</td><td>−0.02</td><td>33.9</td><td>0.89</td><td>30.37</td><td>17.7</td></tr>
+    <tr class="final"><td><span class="dot v3"></span>V3</td><td>−0.47</td><td>+0.61</td><td>38.5</td><td>0.71</td><td>30.41</td><td>16.9</td></tr>
+  </tbody>
+</table></div>
+<p lang="zh">z1 的 4 帧对官方从 33.9 dB 升到 38.5 dB，第一个窗口的偏亮也没有了。p95 统计的 token 边界也包括第一个窗口里的，所以从 0.89 降到 0.71。PSNR 从 30.37 到 30.41 dB，对官方 PSNR 从 37.98 到 38.40 dB，rFVD 从 17.7 到 16.9。第 0→1 帧的跳变中位数在 V2、V3 上都不到 1 级（V3 的 +0.61 主要是第 0 帧本身比官方暗的那 0.47 级）。</p>
+<p lang="en">z1's 4 frames go from 33.9 to 38.5 dB against official, and the first window is no longer too bright. The token boundaries counted by the p95 include those inside the first window, so it drops from 0.89 to 0.71. PSNR goes from 30.37 to 30.41 dB, PSNR against official from 37.98 to 38.40 dB, and rFVD from 17.7 to 16.9. The median frame 0→1 jump is under 1 level in both V2 and V3 (V3's +0.61 is mostly the 0.47 levels by which frame 0 itself is darker than official).</p>
+
+<figure class="wide num" data-player='{"set":"mcl","clip":"SRC01","sources":["official","v2","v3"],"metric":"z1","rate":0.5,"wipe":0.667}'>
+  <figcaption class="cap"><span lang="zh">官方 decode、V2 与 V3，默认 ½× 速度。注意前 22 帧：V2 在第 17 帧暗一下（SRC20 上 −2.0 级，SRC10 上 −1.7 级），V3 没有；V2 的 z1 这 4 帧细节也偏软一些。从第 22 帧起两者逐像素相同。每一路下方右侧是这段视频 z1 的 4 帧对官方的亮度 PSNR。</span><span lang="en">Official decode, V2 and V3, at ½× speed by default. Watch the first 22 frames: V2 dims at frame 17 (−2.0 levels on SRC20, −1.7 on SRC10) and V3 does not, and V2's 4 frames of z1 are a little softer. From frame 22 on the two are identical pixel for pixel. Under each video on the right is the luma PSNR of the clip's 4 z1 frames against official.</span></figcaption>
+</figure>
+
+<!-- ================================================================= -->
+<h2 id="solarwm"><span lang="zh">SolarWM 上的泛化</span><span lang="en">Generalization on SolarWM</span></h2>
+
+<p lang="zh">由于我们对亮度变化做了线性假设，并且只用了 14 个视频做线性回归，为了验证方法的泛化性，我们额外在 SolarWM <span class="cite">[<a href="#ref-3">3</a>]</span> 的测试集上进行了测试比较，系数不重新拟合。SolarWM 是 chunk 式自回归的世界模型，一次生成 5 个 latent，它的 latent 是 DiT 生成的，而不是由真实视频编码得到的，分布和 MCL-JCV 不一样。该测试集共有 13 个子测试集。每个子测试集我们随机选取 2 个视频，共 26 段、12,002 帧，1344×768、16 fps，长度 81 / 160 / 960 帧。生成视频没有原片，所以下面的偏差和 PSNR 都是相对官方 decode 的。</p>
+<p lang="en">Since we assumed a linear brightness model and fitted it on only 14 videos, we also tested on SolarWM's <span class="cite">[<a href="#ref-3">3</a>]</span> test set to check how well the method generalizes, without refitting anything. SolarWM is a chunk-wise autoregressive world model that generates 5 latents at a time. Its latents come out of a DiT instead of being encoded from real video, so their distribution differs from MCL-JCV. The test set has 13 subsets. We picked 2 random videos from each subset: 26 videos, 12,002 frames, 1344×768 at 16 fps, 81, 160 or 960 frames long. Generated videos have no source, so the offsets and PSNR below are against the official decode.</p>
+
+<div class="table"><table>
+  <thead><tr><th></th><th><span lang="zh">对官方 PSNR&nbsp;↑</span><span lang="en">PSNR vs official&nbsp;↑</span><small><span lang="zh">全片</span><span lang="en">whole video</span></small></th><th><span lang="zh">第一个窗口</span><span lang="en">first window</span><small>PSNR</small></th><th><span lang="zh">之后</span><span lang="en">after it</span><small>PSNR</small></th><th><span lang="zh">最差一帧</span><span lang="en">worst frame</span><small><span lang="zh">PSNR 中位数</span><span lang="en">PSNR, median</span></small></th><th><span lang="zh">亮度跳变 p95&nbsp;↓</span><span lang="en">luma-jump p95&nbsp;↓</span><small><span lang="zh">中位数 / 最差</span><span lang="en">median / worst</span></small></th><th><span lang="zh">第 0→1 帧跳变</span><span lang="en">frame 0→1 jump</span><small><span lang="zh">中位数</span><span lang="en">median</span></small></th></tr></thead>
+  <tbody>
+    <tr><td><span class="dot v1"></span>V1</td><td>33.89</td><td>30.68</td><td>34.45</td><td>23.09</td><td>2.27 / 3.05</td><td>+13.44</td></tr>
+    <tr><td><span class="dot v2"></span>V2</td><td>34.26</td><td>31.99</td><td>34.58</td><td>28.44</td><td>0.60 / 0.94</td><td>−0.30</td></tr>
+    <tr class="final"><td><span class="dot v3"></span>V3</td><td>34.41</td><td>32.96</td><td>34.58</td><td>29.58</td><td>0.59 / 0.93</td><td>+0.17</td></tr>
+  </tbody>
+</table></div>
+
+<figure class="fig num">
+  <div data-chart="solar-subsets"></div>
+  <figcaption class="cap"><span lang="zh">13 个子集逐一对比（每个子集 2 段视频的平均）。作为参照，官方 decode 自身相邻帧的自然亮度变化中位数是 0.28 级。</span><span lang="en">All 13 subsets (mean of 2 videos each). For scale, the official decode's own natural brightness change between neighbouring frames has a median of 0.28 levels.</span></figcaption>
+</figure>
+
+<p lang="zh">13 个子集无一例外都变好了：稳态 p95 从 2.27 降到 0.59，第 0→1 帧跳变从 +13.4 降到 +0.17。V1 在 SolarWM 上 chunk 内的锯齿和 MCL-JCV 几乎一样（slot 3、4 偏亮，slot 5 偏暗），这也说明它是 decoder 的性质，而不是数据的性质。</p>
+<p lang="en">Every one of the 13 subsets improves: steady-state p95 goes from 2.27 to 0.59, and the frame 0→1 jump from +13.4 to +0.17. V1's sawtooth inside a chunk looks almost the same on SolarWM as on MCL-JCV (slots 3 and 4 bright, slot 5 dark), which again points to a property of the decoder rather than of the data.</p>
+
+<figure class="wide num" data-player='{"set":"solar","clip":"dl3dv-10s","sources":["official","v1","v3"],"metric":"solar"}'>
+  <figcaption class="cap"><span lang="zh">SolarWM 每个子集一段，前 160 帧（10 s），原尺寸 1344×768。每一路下方右侧的 p95 和第 0→1 帧跳变按整段视频计算。</span><span lang="en">One SolarWM video per subset, first 160 frames (10 s) at the source size, 1344×768. The p95 and frame 0→1 jump under each video are computed over the whole video.</span></figcaption>
+</figure>
+
+<p lang="zh">生成视频没有原片。为了看绝对画质，我们又取了这 26 段对应的真实视频，用 VAE 编码（后验均值）后，分别用官方 <code>decode_temporal</code> 和 V3 解码，再和原片逐帧比较：</p>
+<p lang="en">Generated videos have no source. To look at absolute quality, we also took the real videos behind these 26 clips, encoded them with the VAE (posterior mean), decoded them with the official <code>decode_temporal</code> and with V3, and compared every frame with the source:</p>
+<div class="table"><table>
+  <thead><tr><th></th><th><span lang="zh">对原片 PSNR</span><span lang="en">PSNR vs source</span></th><th><span lang="zh">对原片 SSIM</span><span lang="en">SSIM vs source</span></th><th><span lang="zh">亮度跳变 p95</span><span lang="en">luma-jump p95</span><small><span lang="zh">中位数</span><span lang="en">median</span></small></th></tr></thead>
+  <tbody>
+    <tr><td><span class="dot official"></span><span lang="zh">官方 decode_temporal</span><span lang="en">Official decode_temporal</span></td><td>31.62</td><td>0.885</td><td>0.28</td></tr>
+    <tr><td><span class="dot v3"></span>V3</td><td>30.85</td><td>0.872</td><td>0.64</td></tr>
+    <tr class="sep"><td colspan="4"><span lang="zh">差距平均 −0.78 dB（中位数 −0.72，范围 −1.37 … −0.43）；V3 对官方 36.60 dB，SSIM 0.968</span><span lang="en">Gap: −0.78 dB on average (median −0.72, range −1.37 … −0.43); V3 against official: 36.60 dB, SSIM 0.968</span></td></tr>
+  </tbody>
+</table></div>
+
+<p lang="zh">可以看到结果非常满意：只用 MCL-JCV 拟合的 231 个数，在分布不同的生成视频上同样有效。</p>
+<p lang="en">The results are very satisfying: 231 numbers fitted on MCL-JCV work just as well on generated videos from a different distribution.</p>
+
+<!-- ================================================================= -->
+<h2 id="cost"><span lang="zh">计算量、速度与画质</span><span lang="en">Compute, speed and quality</span></h2>
+
+
+<p lang="zh">这种做法能充分利用 KV cache：每个 latent 只算一次，换窗时再 prefill 两格，一个窗口一共算 7 格，和官方一样，所以计算量和离线方案相比并没有增加。按模型结构解析计算（36 层、宽 2048、门控 SiLU FFN，24.2 亿参数；1344×768 上有 28 个空间 tile，每个 latent 在每个 tile 上是 256 个 token，另有 4 个 register 和 1 个 cls），稳态每个窗口官方是 270.4 TFLOPs，我们是 263.6 TFLOPs，低 2.5%。线性层略多一点，因为 register 和 cls 每一步都要重算；attention 则小得多，新的 query 只看 cache 和自己，而不是 7 × 7 的全连接。</p>
+<p lang="en">This scheme makes full use of the KV cache: each latent is computed once, plus 2 prefilled slots at each window shift, 7 slots per window in total, the same as official. So compute does not grow compared with offline decoding. Counting analytically from the architecture (36 layers, width 2048, gated SiLU FFN, 2.42 B parameters; 28 spatial tiles at 1344×768, 256 tokens per latent per tile, plus 4 registers and 1 cls token), a steady-state window costs 270.4 TFLOPs for official and 263.6 TFLOPs for us, 2.5% less. The linear layers do slightly more work because registers and cls are recomputed at every step, while attention is much smaller: new queries attend to the cache and themselves instead of full 7 × 7 attention.</p>
+
+<p lang="zh">多出来的计算只有一处：V3 在 z1 那一步多算一次 slot 0，每段视频多 1 格，也就是 1/7 个窗口。所以 V3 只在很短的视频上和离线持平，再长就更省：</p>
+<p lang="en">The extra compute is in one place only: V3 recomputes slot 0 in the z1 step, one extra slot per video, or 1/7 of a window. So V3 only breaks even with offline decoding on very short videos and costs less on longer ones:</p>
+<div class="table"><table>
+  <thead><tr><th><span lang="zh">相对官方的计算量</span><span lang="en">compute vs official</span></th><th><span lang="zh">V1、V2</span><span lang="en">V1, V2</span></th><th>V3</th></tr></thead>
+  <tbody>
+    <tr><td><span lang="zh">27 个 latent（90 帧）</span><span lang="en">27 latents (90 frames)</span></td><td>−2.5%</td><td>+0.1%</td></tr>
+    <tr><td><span lang="zh">52 个 latent（175 帧）</span><span lang="en">52 latents (175 frames)</span></td><td>−2.5%</td><td>−1.2%</td></tr>
+    <tr><td><span lang="zh">MCL-JCV 30 段（3873 帧）</span><span lang="en">MCL-JCV, 30 clips (3873 frames)</span></td><td>−2.5%</td><td>−0.7%</td></tr>
+    <tr><td><span lang="zh">282 个 latent（957 帧，16 fps 下约 60 s）</span><span lang="en">282 latents (957 frames, about 60 s at 16 fps)</span></td><td>−2.5%</td><td>−2.3%</td></tr>
+  </tbody>
+</table></div>
+
+<p lang="zh">实际速度（MCL-JCV 30 段，1344×768）：</p>
+<p lang="en">Measured speed (MCL-JCV, 30 clips, 1344×768):</p>
+<div class="table"><table>
+  <thead><tr><th></th><th><span class="dot official" style="margin-right:7px"></span><span lang="zh">官方 decode</span><span lang="en">Official decode</span></th><th><span lang="zh">V3，未优化</span><span lang="en">V3, unoptimized</span></th></tr></thead>
+  <tbody>
+    <tr><td><span lang="zh">要等的未来 latent</span><span lang="en">future latents to wait for</span></td><td>2</td><td>0</td></tr>
+    <tr><td><span lang="zh">第一帧</span><span lang="en">first frame</span></td><td><span lang="zh">z6 生成后再 0.73 s</span><span lang="en">0.73 s after z6 exists</span></td><td>0.09 s</td></tr>
+    <tr><td><span lang="zh">前 17 帧</span><span lang="en">first 17 frames</span></td><td><span lang="zh">z6 生成后再 0.73 s</span><span lang="en">0.73 s after z6 exists</span></td><td>0.54 s</td></tr>
+    <tr><td><span lang="zh">稳态每个 latent（中位数）</span><span lang="en">steady state per latent (median)</span></td><td><span lang="zh">每 5 个 0.73 s</span><span lang="en">0.73 s per 5</span></td><td>0.09 s</td></tr>
+    <tr><td><span lang="zh">换窗那一步（含 2 格 prefill）</span><span lang="en">window-shift step (with 2-slot prefill)</span></td><td>—</td><td>0.26 s</td></tr>
+    <tr><td><span lang="zh">吞吐</span><span lang="en">throughput</span></td><td>24.38 fps</td><td>27.43 fps</td></tr>
+  </tbody>
+</table></div>
+
+<p lang="zh">上表是官方 decode 和未做优化的 V3。这版 V3 已经是 query 只看 cache、28 个 tile 一次前向，27.43 fps。下面从这里收到 70.12 fps。</p>
+<p lang="en">The table above is official decoding against unoptimized V3. That V3 already attends only to the cache and runs all 28 tiles in one forward, at 27.43 fps. The next table goes from there to 70.12 fps.</p>
+<div class="table"><table>
+  <thead><tr><th></th><th><span lang="zh">吞吐</span><span lang="en">throughput</span></th><th><span lang="zh">稳态每步（中位数）</span><span lang="en">steady step (median)</span></th><th><span lang="zh">加速比例</span><span lang="en">speedup</span></th><th><span lang="zh">换窗</span><span lang="en">window shift</span></th></tr></thead>
+  <tbody>
+    <tr><td><span lang="zh">V3，未做优化</span><span lang="en">V3, unoptimized</span></td><td>27.43 fps</td><td>0.094 s</td><td>—</td><td>0.26 s</td></tr>
+    <tr><td><span lang="zh">+ RoPE cache、torch compile</span><span lang="en">+ RoPE cache, torch.compile</span></td><td>60.67 fps</td><td>0.045 s</td><td>2.09×</td><td>0.11 s</td></tr>
+    <tr><td>+ fused kernel</td><td>70.12 fps</td><td>0.039 s</td><td>2.41×</td><td>0.09 s</td></tr>
+  </tbody>
+</table></div>
+<p lang="zh">换窗的两格如果提前算，slot 0 和 1 还看不到这个窗口的第三个 latent，画质会差：对原片 PSNR 从 30.41 降到 30.28 dB，对官方从 38.40 降到 37.56 dB，p95 从 0.71 升到 0.88。这一步不开。加速前后的输出几乎一样，两者之间的 PSNR 是 54.7 dB，下面的画质指标基本不变（p95 0.711 → 0.713，rFVD 16.86 → 16.89）。</p>
+<p lang="en">Computing the two window-shift slots early means slots 0 and 1 never see the window's third latent, and quality drops: PSNR against the source goes from 30.41 to 30.28 dB, against official from 38.40 to 37.56 dB, and p95 rises from 0.71 to 0.88. That step stays off. The output barely changes with the speed-ups: the PSNR between the two versions is 54.7 dB, and the quality numbers below stay essentially the same (p95 0.711 → 0.713, rFVD 16.86 → 16.89).</p>
+
+<p lang="zh">延迟上的差别要大得多。官方要等 z6 生成后才能开始解第一个窗口，之后每个 latent 平均还要再等 4 个 latent；我们在第一个 latent 生成后 0.04 s 就出第一帧，z1 那一步因为多算一次 slot 0 要 0.06 s，之后每个 latent 约 0.04 s，换窗那一步 0.09 s。下图用实测的单步耗时模拟了两种解码下每一帧什么时候能显示：</p>
+<p lang="en">The difference in latency is much larger. The official decoder cannot start the first window before z6 exists, and after that each latent still waits for 4 more latents on average. We show the first frame 0.04 s after the first latent is generated; the z1 step takes 0.06 s because it also recomputes slot 0, and after that each latent takes about 0.04 s, 0.09 s at a window shift. The figure below uses the measured step times to simulate when each frame can be shown under the two decoders:</p>
+
+<figure class="fig num">
+  <div data-chart="latency"></div>
+  <figcaption class="cap"><span lang="zh">已能播放的帧数随时间的变化，共 27 个 latent（90 帧）。单步耗时用实测中位数：流式第一个 latent 0.04 s，第二个 0.06 s，之后每个 latent 约 0.04 s（换窗那一步 0.09 s）；官方每个窗口 0.73 s。</span><span lang="en">Frames ready to show over time, 27 latents (90 frames). Step times are the measured medians: 0.04 s for the stream's first latent and 0.06 s for the second, then about 0.04 s per latent (0.09 s at a window shift); 0.73 s per window for the official decoder.</span></figcaption>
+</figure>
+
+<p lang="zh">画质方面（MCL-JCV 30 段，对原片）：</p>
+<p lang="en">Quality (MCL-JCV, 30 clips, against the source):</p>
+<div class="table"><table>
+  <thead><tr><th></th><th>PSNR&nbsp;↑</th><th>SSIM&nbsp;↑</th><th>LPIPS&nbsp;↓</th><th>rFVD&nbsp;↓</th><th><span lang="zh">对官方 PSNR&nbsp;↑</span><span lang="en">PSNR vs official&nbsp;↑</span></th><th><span lang="zh">跳变 p95&nbsp;↓</span><span lang="en">jump p95&nbsp;↓</span></th></tr></thead>
+  <tbody>
+    <tr><td><span class="dot official"></span><span lang="zh">官方 decode</span><span lang="en">Official decode</span></td><td>31.04</td><td>0.879</td><td>0.0745</td><td>13.3</td><td>—</td><td>0.18</td></tr>
+    <tr><td><span class="dot v1"></span>V1</td><td>30.26</td><td>0.869</td><td>0.0771</td><td>19.1</td><td>37.16</td><td>1.95</td></tr>
+    <tr><td><span class="dot v2"></span>V2</td><td>30.37</td><td>0.867</td><td>0.0770</td><td>17.7</td><td>37.98</td><td>0.89</td></tr>
+    <tr class="final"><td><span class="dot v3"></span>V3</td><td>30.41</td><td>0.868</td><td>0.0759</td><td>16.9</td><td>38.40</td><td>0.71</td></tr>
+  </tbody>
+</table></div>
+<p lang="zh">相对原片，最终版比官方低 0.63 dB（30.41 vs 31.04），LPIPS 0.0759 vs 0.0745。从 V1 到 V3，PSNR、rFVD、对官方 PSNR 和 p95 每一步都在变好，SSIM 和 LPIPS 变化很小。</p>
+<p lang="en">Against the source, the final version is 0.63 dB below official (30.41 vs 31.04 dB), with LPIPS 0.0759 vs 0.0745. From V1 to V3, PSNR, rFVD, PSNR against official and p95 improve at every step, while SSIM and LPIPS change very little.</p>
+
+<!-- ================================================================= -->
+<h2 id="streamrender"><span lang="zh">和 StreamRender-H3 的讨论</span><span lang="en">Discussion with StreamRender-H3</span></h2>
+
+<h3><span lang="zh">StreamRender-H3 怎么做</span><span lang="en">How StreamRender-H3 decodes</span></h3>
+
+<p lang="zh">NVIDIA 的 StreamRender-H3 <span class="cite">[<a href="#ref-6">6</a>]</span> 也做了一套 H3 VAE 的因果流式解码。由官方 36 层里留下 24 层，再进行蒸馏。在时间上一次处理 2 个 latent，这两个 latent 互相能看得见。</p>
+<p lang="en">NVIDIA's StreamRender-H3 <span class="cite">[<a href="#ref-6">6</a>]</span> is another causal streaming decoder for the H3 VAE. It keeps 24 of the official 36 layers and distills them. In time it processes 2 latents at once, and the two can see each other.</p>
+
+<h3><span lang="zh">和 V3 的对比</span><span lang="en">Comparison with V3</span></h3>
+
+<p lang="zh">下面这张表和上面那张用同一种打分。MCL-JCV 30 段、1344×768、同一套官方 encoder 的 latent，对原片算 PSNR、SSIM、LPIPS、rFVD。</p>
+<p lang="en">This table uses the same scoring as the one above: the 30 MCL-JCV clips at 1344×768 and the same official-encoder latents, with PSNR, SSIM, LPIPS and rFVD against the source.</p>
+
+<div class="table"><table>
+  <thead><tr><th></th><th>PSNR&nbsp;↑</th><th>SSIM&nbsp;↑</th><th>LPIPS&nbsp;↓</th><th>rFVD&nbsp;↓</th><th><span lang="zh">对官方 PSNR&nbsp;↑</span><span lang="en">PSNR vs official&nbsp;↑</span></th></tr></thead>
+  <tbody>
+    <tr><td><span class="dot official"></span><span lang="zh">官方 decode</span><span lang="en">Official decode</span></td><td>31.04</td><td>0.879</td><td>0.0745</td><td>13.3</td><td>—</td></tr>
+    <tr><td><span class="dot v3"></span>V3</td><td>30.41</td><td>0.868</td><td>0.0759</td><td>16.9</td><td>38.40</td></tr>
+    <tr><td><span class="dot sr"></span>StreamRender</td><td>30.43</td><td>0.868</td><td>0.0826</td><td>18.6</td><td>36.84</td></tr>
+  </tbody>
+</table></div>
+
+<p lang="zh">速度上，同样是 1344×768，StreamRender 是 246 fps，一步 27 ms。它是 24 层，空间窗口不重叠，一步两个 latent。V3 是官方 36 层，70 fps，每个 latent 到了就出帧。</p>
+<p lang="en">On speed, at the same 1344×768, StreamRender runs at 246 fps, 27 ms per step. It has 24 layers, non-overlapping spatial windows, and two latents per step. V3 keeps the official 36 layers, runs at 70 fps, and emits frames as each latent arrives.</p>
+
+<figure class="wide num" data-player='{"set":"mcl","clip":"SRC01","sources":["official","v3","sr"],"metric":"p95","hints":true}'>
+  <figcaption class="cap"><span lang="zh">同一批 5 段视频：官方 decode、V3、StreamRender（一步 2 个 latent）逐帧同步。每路下方是这段自己的亮度跳变 p95。</span><span lang="en">The same five clips: official decode, V3 and StreamRender (2 latents per step), synced frame by frame. Under each video is that clip's luma-jump p95.</span></figcaption>
+</figure>
+
+<p lang="zh">放到一起看，质量上 V3 略好一点。对原片的 PSNR 两边几乎一样，30.41 对 30.43。LPIPS 是 0.0759 对 0.0826，rFVD 是 16.9 对 18.6，对官方是 38.40 对 36.84，这三项是 V3 更好。速度是 StreamRender 的优势，246 fps 对 V3 的 70 fps。V3 出帧也更早：StreamRender 一步按 2 个 latent 解，要攒齐这两个才出帧；V3 每来一个 latent 就出帧。</p>
+<p lang="en">Taken together, V3 is a little ahead on quality. PSNR against the source is nearly the same, 30.41 versus 30.43. LPIPS is 0.0759 versus 0.0826, rFVD is 16.9 versus 18.6, and PSNR against official is 38.40 versus 36.84, so those three favor V3. Speed is StreamRender's advantage, 246 fps against V3's 70 fps. V3 also emits frames sooner: StreamRender decodes 2 latents per step and waits until both have arrived, while V3 emits frames as each latent arrives.</p>
+
+<h3><span lang="zh">改成一步一个 latent</span><span lang="en">One latent at a time</span></h3>
+
+<p lang="zh">StreamRender-H3 的缓存本来就是按时间存的，所以我们的做法可以直接用在这份权重上。把一步从 2 个 latent 改成 1 个：新来的 latent 只看缓存里前面 4 个的 K/V 和它自己，算完把自己的 K/V 推进同一个缓存。权重、缓存长度、出帧规则都不变，也不做亮度补偿。每一步只依赖已经解过的 latent。</p>
+<p lang="en">StreamRender-H3's cache is already stored by time, so the same schedule applies to these weights. The step goes from 2 latents to 1: a new latent attends only to the cached K/V of the previous 4 and to itself, then appends its own K/V to that cache. The weights, the cache length and the frame rule stay as they are, and there is no brightness compensation. Each step depends only on latents already decoded.</p>
+
+<p lang="zh">下表是 30 段的中位数。</p>
+<p lang="en">The table is the median over the 30 clips.</p>
+
+<div class="table"><table>
+  <thead><tr><th></th><th><span lang="zh">对原片 PSNR&nbsp;↑</span><span lang="en">PSNR vs source&nbsp;↑</span></th><th><span lang="zh">对官方 PSNR&nbsp;↑</span><span lang="en">PSNR vs official&nbsp;↑</span></th><th><span lang="zh">跳变 p95&nbsp;↓</span><span lang="en">jump p95&nbsp;↓</span></th></tr></thead>
+  <tbody>
+    <tr><td><span class="dot sr"></span><span lang="zh">一步 2 个 latent</span><span lang="en">2 latents / step</span></td><td>32.82</td><td>36.99</td><td>0.53</td></tr>
+    <tr><td><span class="dot sr1"></span><span lang="zh">一步 1 个 latent</span><span lang="en">1 latent / step</span></td><td>32.66</td><td>36.40</td><td>0.54</td></tr>
+  </tbody>
+</table></div>
+
+<p lang="zh">30 段全部略低。对原片的中位差距是 0.17 dB，对官方是 0.51 dB，p95 从 0.53 到 0.54。一步一个 latent 更慢：拼缓存、切窗口和那 5 个 suffix token 每个 latent 都要付一遍。</p>
+<p lang="en">All 30 clips come out slightly lower. The median gap is 0.17 dB against the source and 0.51 dB against official, and p95 moves from 0.53 to 0.54. One latent per step is slower: assembling the cache, splitting the windows and the 5 suffix tokens are paid once per latent.</p>
+
+<figure class="wide num" data-player='{"set":"mcl","clip":"SRC01","sources":["official","sr","sr1"],"metric":"p95","hints":true}'>
+  <figcaption class="cap"><span lang="zh">同一套 StreamRender 权重。中间是原来的一步 2 个 latent，右边是一步 1 个 latent，只看缓存里前面 4 个和自己。左边是官方 decode。</span><span lang="en">The same StreamRender weights. The middle is the original step of 2 latents; the right is one latent at a time, attending to the cached previous 4 and itself. Official decode is on the left.</span></figcaption>
+</figure>
+
+<p lang="zh">画面上两路很难分开。差主要落在纹理和边缘上，幅度很小。</p>
+<p lang="en">The two are hard to tell apart. What differs sits in texture and edges, and the difference is small.</p>
+
+<h3><span lang="zh">亮度补偿可以省掉</span><span lang="en">The brightness compensation drops out</span></h3>
+
+<p lang="zh">同一套想法用在官方 36 层上时，亮度跟着 slot 走。V1 的 p95 是 1.95，后面靠线性补偿把它收到 V3 的 0.71。StreamRender 这 24 层是按因果缓存蒸馏的，slot 上的亮度偏差已经在权重里。一步 2 个 latent 的 p95 是 0.53，改成一步 1 个 latent 是 0.54，都靠近官方自己的 0.19。一个 chunk 里各个帧位相对官方的亮度偏差，中位数不超过 0.6 级。所以这套 latent by latent 的缓存做法用在 StreamRender-H3 的 decoder 上时，不需要我们在 H3 上那套亮度补偿。</p>
+<p lang="en">When the same idea is applied to the official 36-layer decoder, brightness follows the slot. V1's p95 is 1.95, and the linear compensation later brings it down to V3's 0.71. StreamRender's 24 layers were distilled with this causal cache, so the slot-dependent brightness offset is already in the weights. p95 is 0.53 for a step of 2 latents and 0.54 for a step of 1, both near the official decode's own 0.19. Inside a chunk, the median brightness offset of each frame position against official stays within 0.6 levels. Running this latent-by-latent cache on the StreamRender-H3 decoder therefore does not need the brightness compensation we fit for H3.</p>
+
+<!-- ================================================================= -->
+<h2 id="conclusion"><span lang="zh">结论与局限</span><span lang="en">Conclusion and limitations</span></h2>
+
+<p lang="zh">我们在不训练、不改权重的前提下，把 H3 VAE decoder 改成了 latent by latent 的因果流式解码。它不依赖任何未来 latent，计算量和离线解码相当，画质比官方低 0.6–0.8 dB，能显著降低流式 H3 模型对未来 latent 的依赖，进而减少 interactive latency。</p>
+<p lang="en">Without training or changing any weight, we turned the H3 VAE decoder into a causal, latent-by-latent stream. It needs no future latent, costs about the same compute as offline decoding, and is 0.6–0.8 dB below official in quality. It significantly reduces a streaming H3 model's dependence on future latents, and with it the interactive latency.</p>
+
+<p lang="zh">不过目前社区对 H3 的改造还没有 latent by latent 的，基本都是 chunk by chunk（官方的 <code>_decode_temporal_streaming</code> <span class="cite">[<a href="#ref-1">1</a>]</span>、TaoMate-H3 <span class="cite">[<a href="#ref-4">4</a>]</span> 的流式音视频生成、LynnReal-Omni <span class="cite">[<a href="#ref-5">5</a>]</span> 的 NativeOverlapStream 等）。因此我们方法的优点还没有完全展现出来。但它已经能帮助 SolarWM 这样的流式 H3 模型在解码时去掉对未来 2 个 latent 的依赖，也就是不用再等下一个 chunk。</p>
+<p lang="en">However, the community's adaptations of H3 so far are not latent by latent; they are basically chunk by chunk (the official <code>_decode_temporal_streaming</code> <span class="cite">[<a href="#ref-1">1</a>]</span>, the streaming audio-video generation of TaoMate-H3 <span class="cite">[<a href="#ref-4">4</a>]</span>, the NativeOverlapStream of LynnReal-Omni <span class="cite">[<a href="#ref-5">5</a>]</span> and others). The advantage of our method does not fully show yet. It already lets a streaming H3 model such as SolarWM drop the decoder's dependence on the 2 future latents, i.e. on the next chunk.</p>
+
+<p lang="zh">另外，画质比官方低一点：对原片低 0.63 dB，rFVD 16.9 vs 13.3。看不见未来本身是有代价的，只改推理能补回来的有限。</p>
+<p lang="en">In addition, quality is a little lower than official: 0.63 dB below it against the source, rFVD 16.9 vs 13.3. Not seeing the future has a cost, and changing only the inference can recover just so much.</p>
+
+<p lang="zh">最后，亮度变化产生的机理还有待进一步分析。</p>
+<p lang="en">Finally, the mechanism behind the brightness changes remains to be analyzed further.</p>
+
+<!-- ================================================================= -->
+<section class="refs">
+<h2 id="references"><span lang="zh">参考文献</span><span lang="en">References</span></h2>
+<ol>
+  <li id="ref-1"><span class="n">[1]</span><span class="body">MiniMax. <span class="ti">MiniMax H3: An Open Model Breaking the Boundaries Between Tasks and Modalities.</span> Model release, July 2026. <a href="https://github.com/MiniMax-AI/MiniMax-H3">github.com/MiniMax-AI/MiniMax-H3</a></span></li>
+  <li id="ref-2"><span class="n">[2]</span><span class="body">H. Wang, W. Gan, S. Hu, et al. <span class="ti">MCL-JCV: A JND-Based H.264/AVC Video Quality Assessment Dataset.</span> IEEE ICIP, 2016. <a href="https://mcl.usc.edu/mcl-jcv-dataset/">mcl.usc.edu/mcl-jcv-dataset</a></span></li>
+  <li id="ref-3"><span class="n">[3]</span><span class="body">J. Huang, G. Fang, S. Qian, et al. <span class="ti">SolarWM: Open Data and Scalable Training for Long-Horizon Video World Models.</span> arXiv:2609.02886, 2026. <a href="https://arxiv.org/abs/2609.02886">arxiv.org/abs/2609.02886</a></span></li>
+  <li id="ref-4"><span class="n">[4]</span><span class="body">Q. Gan, C. Zhang, M. Jin, et al. <span class="ti">TaoMate: Anchor-Guided Memory Bridging Evolving and Reference States for Real-Time Audio-Video Digital Human Generation.</span> arXiv:2607.24359, 2026. H3 streaming runtime: <a href="https://github.com/TaoLiveAIGC/TaoMate-H3">github.com/TaoLiveAIGC/TaoMate-H3</a></span></li>
+  <li id="ref-5"><span class="n">[5]</span><span class="body">X. Mao, P. Lin, S. Rui, et al. <span class="ti">LynnReal-Omni: Native Multi-modal Video Generation for Agentic Visual Workflows.</span> arXiv:2609.15863, 2026. <a href="https://arxiv.org/abs/2609.15863">arxiv.org/abs/2609.15863</a></span></li>
+  <li id="ref-6"><span class="n">[6]</span><span class="body">NVIDIA. <span class="ti">StreamRender-H3.</span> Sol-Engine, Sana. <a href="https://nvlabs.github.io/Sana/Sol-Engine/StreamRender-H3/">nvlabs.github.io/Sana/Sol-Engine/StreamRender-H3</a>. Code: <a href="https://github.com/NVlabs/Sana/tree/sol-engine/models/streamrender_h3">github.com/NVlabs/Sana</a></span></li>
+</ol>
+</section>
+
+</article>
+</main>
+
+<footer>
+  <p class="authors"><span lang="zh">陈博宏、陈雅静、杜壹华、黄俊超、錢湦鉅</span><span lang="en">Bohong Chen, Yajing Chen, Yihua Du, Junchao Huang, Shengju Qian</span></p>
+  <p class="authors">SolarX-Team</p>
+  <a class="repo" href="https://github.com/SolarX-Team/H3-Streaming-VAE-Decoder"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>github.com/SolarX-Team/H3-Streaming-VAE-Decoder</a>
+</footer>
+
+<script src="assets/data.js"></script>
+<script src="assets/core.js"></script>
+<script src="assets/charts.js"></script>
+<script src="assets/anim.js"></script>
+<script src="assets/player.js"></script>
+<script src="assets/refs.js"></script>
+<script>H3.start();</script>
+</body>
+</html>
