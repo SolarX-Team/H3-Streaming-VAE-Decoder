@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "h3-streaming-vae"
+version = "0.1.0"
+description = "Streaming decode for the MiniMax H3 video VAE"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+dynamic = ["dependencies"]
+
+[project.optional-dependencies]
+fused = [
+  "quack-kernels>=0.6.5",
+  "flash-attn-4[cu13]",
+]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+
+[tool.setuptools.packages.find]
+include = ["h3_vae*", "streamrender_h3*"]
+
+[tool.setuptools.package-data]
+h3_vae = ["tables/*.pt"]
+streamrender_h3 = ["config.json"]
