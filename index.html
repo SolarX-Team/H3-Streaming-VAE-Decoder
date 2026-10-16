@@ -42,6 +42,23 @@
   }
   a.repo:hover { color: var(--text); }
   a.repo svg { width: 15px; height: 15px; display: block; flex: none; }
+  .post-head .by .fold { cursor: pointer; outline: none; }
+  .post-head .by .fold > span { border-bottom: 1px dotted var(--line-2); }
+  .post-head .by .fold:hover > span, .post-head .by .fold:focus-visible > span { border-bottom-color: var(--accent); }
+  .post-head .by .etal { color: var(--muted); }
+  .post-head .by .rest { display: none; }
+  .post-head .by .fold:hover .rest, .post-head .by .fold.open .rest { display: inline; animation: by-in 0.35s ease; }
+  .post-head .by .fold:hover .etal, .post-head .by .fold.open .etal { display: none; }
+  @keyframes by-in { from { opacity: 0; } to { opacity: 1; } }
+  .cite-sec .bib { position: relative; }
+  .cite-sec .bib pre { margin: 0; padding-right: 72px; }
+  .cite-sec .bib pre code { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .cite-sec .copy {
+    position: absolute; top: 10px; right: 10px;
+    padding: 3px 10px; border: 1px solid var(--line-2); border-radius: 6px;
+    background: var(--bg); color: var(--muted); font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .cite-sec .copy:hover { color: var(--text); border-color: var(--muted); }
 </style>
 </head>
 <body>
@@ -65,6 +82,7 @@
     <a href="#streamrender"><span lang="zh">和 StreamRender-H3 的讨论</span><span lang="en">Discussion with StreamRender-H3</span></a>
     <a href="#conclusion"><span lang="zh">结论与局限</span><span lang="en">Conclusion</span></a>
     <a href="#references"><span lang="zh">参考文献</span><span lang="en">References</span></a>
+    <a href="#citation"><span lang="zh">引用</span><span lang="en">Citation</span></a>
   </nav>
   <button type="button" class="toc-btn" aria-controls="toc" aria-expanded="false" aria-label="contents">
     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h7"/></svg><span lang="zh">目录</span><span lang="en">Contents</span>
@@ -89,6 +107,7 @@
   <a href="#streamrender"><span lang="zh">和 StreamRender-H3 的讨论</span><span lang="en">Discussion with StreamRender-H3</span></a>
   <a href="#conclusion"><span lang="zh">结论与局限</span><span lang="en">Conclusion and limitations</span></a>
   <a href="#references"><span lang="zh">参考文献</span><span lang="en">References</span></a>
+  <a href="#citation"><span lang="zh">引用</span><span lang="en">Citation</span></a>
 </nav>
 
 <main>
@@ -98,7 +117,7 @@
   <p class="eyebrow"><span lang="zh">MiniMax H3 · 视频 VAE</span><span lang="en">MiniMax H3 · Video VAE</span></p>
   <h1>H3 Streaming VAE Decoder</h1>
   <p class="kw"><span lang="zh">关键词：</span><span lang="en">Keywords: </span>Training Free · Streaming · Without Future Latent</p>
-  <p class="by"><span lang="zh">陈博宏、陈雅静、杜壹华、黄俊超、錢湦鉅</span><span lang="en">Bohong Chen, Yajing Chen, Yihua Du, Junchao Huang, Shengju Qian</span></p>
+  <p class="by"><span class="fold" tabindex="0" role="button" aria-expanded="false"><span lang="zh">陈博宏<span class="etal"> 等</span><span class="rest">、陈雅静、杜壹华、黄俊超、方桂安、錢湦鉅</span></span><span lang="en">Bohong Chen<span class="etal"> et al.</span><span class="rest">, Yajing Chen, Yihua Du, Junchao Huang, Guian Fang, Shengju Qian</span></span></span></p>
   <p class="by team"><span lang="zh">SolarX-Team, 2026 年 10 月</span><span lang="en">SolarX-Team, October 2026</span></p>
 </header>
 
@@ -509,11 +528,25 @@
 </ol>
 </section>
 
+<section class="refs cite-sec">
+<h2 id="citation"><span lang="zh">引用</span><span lang="en">Citation</span></h2>
+<p lang="zh">如果这篇文章对你有帮助，欢迎引用：</p>
+<p lang="en">If you find this post useful, please cite:</p>
+<div class="bib"><button class="copy" type="button"><span lang="zh">复制</span><span lang="en">Copy</span></button><pre><code>@misc{chen2026h3streaming,
+  title        = {H3 Streaming VAE Decoder: Training-Free Streaming without Future Latents},
+  author       = {Chen, Bohong and Chen, Yajing and Du, Yihua and Huang, Junchao and Fang, Guian and Qian, Shengju},
+  year         = {2026},
+  month        = {oct},
+  howpublished = {\url{https://solarx-team.github.io/H3-Streaming-VAE-Decoder/}},
+  note         = {SolarX-Team blog post}
+}</code></pre></div>
+</section>
+
 </article>
 </main>
 
 <footer>
-  <p class="authors"><span lang="zh">陈博宏、陈雅静、杜壹华、黄俊超、錢湦鉅</span><span lang="en">Bohong Chen, Yajing Chen, Yihua Du, Junchao Huang, Shengju Qian</span></p>
+  <p class="authors"><span lang="zh">陈博宏、陈雅静、杜壹华、黄俊超、方桂安、錢湦鉅</span><span lang="en">Bohong Chen, Yajing Chen, Yihua Du, Junchao Huang, Guian Fang, Shengju Qian</span></p>
   <p class="authors">SolarX-Team</p>
   <a class="repo" href="https://github.com/SolarX-Team/H3-Streaming-VAE-Decoder"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>github.com/SolarX-Team/H3-Streaming-VAE-Decoder</a>
 </footer>
@@ -524,6 +557,21 @@
 <script src="assets/anim.js"></script>
 <script src="assets/player.js"></script>
 <script src="assets/refs.js"></script>
+<script>
+  (function () {
+    var f = document.querySelector(".post-head .fold");
+    function t() { var o = f.classList.toggle("open"); f.setAttribute("aria-expanded", o); }
+    f.addEventListener("click", t);
+    f.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); t(); } });
+    var b = document.querySelector(".cite-sec .copy");
+    b.addEventListener("click", function () {
+      navigator.clipboard.writeText(document.querySelector(".cite-sec code").textContent).then(function () {
+        b.classList.add("done"); b.innerHTML = '<span lang="zh">已复制</span><span lang="en">Copied</span>';
+        setTimeout(function () { b.innerHTML = '<span lang="zh">复制</span><span lang="en">Copy</span>'; }, 1500);
+      });
+    });
+  })();
+</script>
 <script>H3.start();</script>
 </body>
 </html>
