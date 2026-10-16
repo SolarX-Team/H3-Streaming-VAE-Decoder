@@ -1,5 +1,7 @@
 # H3 Streaming VAE Decoder
 
+Blog: https://solarx-team.github.io/H3-Streaming-VAE-Decoder/
+
 Streaming decode for the MiniMax H3 video VAE. Each latent is decoded as soon as it arrives. Supports both the official H3 VAE decoder and the StreamRender-H3 VAE decoder.
 
 ## Install
@@ -81,3 +83,16 @@ frames = decoder.decode_chunk(latents)
 ```
 
 This repo is Apache-2.0. The official H3 weights and `FL2VA` stay under the [MiniMax H3 community license](https://github.com/MiniMax-AI/MiniMax-H3). `streamrender_h3/decoder` follows the public [StreamRender-H3](https://github.com/NVlabs/Sana/tree/sol-engine/models/streamrender_h3) deployment path. `streamrender_h3/h3_video_vae` keeps the Apache-2.0 headers those modules were published with. The student checkpoint above is not in this repo.
+
+## Citation
+
+```bibtex
+@misc{chen2026h3streaming,
+  title        = {H3 Streaming VAE Decoder: Training-Free Streaming without Future Latents},
+  author       = {Chen, Bohong and Chen, Yajing and Du, Yihua and Huang, Junchao and Fang, Guian and Qian, Shengju},
+  year         = {2026},
+  month        = {oct},
+  howpublished = {\url{https://solarx-team.github.io/H3-Streaming-VAE-Decoder/}},
+  note         = {SolarX-Team blog post}
+}
+```
