@@ -72,6 +72,9 @@ a:hover { color: var(--accent-ink); text-decoration-color: currentColor; }
   border-bottom: 1px solid var(--line);
 }
 .topbar .name {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   min-width: 0;
   margin-right: auto;
   overflow: hidden;
@@ -84,6 +87,8 @@ a:hover { color: var(--accent-ink); text-decoration-color: currentColor; }
   white-space: nowrap;
 }
 .topbar .name:hover { color: var(--text); }
+.topbar .team-logo { display: block; width: 40px; height: 40px; flex: none; object-fit: contain; border-radius: 6px; }
+.topbar .brand-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topbar .name small { margin-left: 12px; color: var(--faint); font-size: 13px; font-weight: 400; letter-spacing: 0; }
 
 /* section links in the top bar; the Method entry opens its subsections */
