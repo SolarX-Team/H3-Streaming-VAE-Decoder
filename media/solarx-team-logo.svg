@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="40 120 1174 900" width="1174.0" height="900.0">
+  <defs>
+    <radialGradient id="g-sun" gradientUnits="userSpaceOnUse" cx="795" cy="612" r="565.5" fx="795" fy="632">
+      <stop offset="0" stop-color="#fff6dc"/>
+      <stop offset=".22" stop-color="#f6e2b6"/>
+      <stop offset=".55" stop-color="#e3c690"/>
+      <stop offset="1" stop-color="#d8b373"/>
+    </radialGradient>
+    <linearGradient id="g-band" x1="0" y1="0" x2="0" y2="1">
+      <stop offset=".55" stop-color="#fff" stop-opacity="0"/>
+      <stop offset=".72" stop-color="#fff6e2" stop-opacity=".75"/>
+      <stop offset=".86" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="g-rim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e2b56a"/>
+      <stop offset="1" stop-color="#f0a640"/>
+    </linearGradient>
+    <linearGradient id="g-ripple" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#b98d4f"/>
+      <stop offset=".3" stop-color="#e9b45f"/>
+      <stop offset=".5" stop-color="#fff3d2"/>
+      <stop offset=".7" stop-color="#e8b765"/>
+      <stop offset="1" stop-color="#b98d4f"/>
+    </linearGradient>
+    <linearGradient id="g-horizon" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1a2536"/>
+      <stop offset=".5" stop-color="#1d2a3c"/>
+      <stop offset="1" stop-color="#1a2536"/>
+    </linearGradient>
+    <radialGradient id="g-core">
+      <stop offset="0" stop-color="#fff"/>
+      <stop offset=".35" stop-color="#fff8e4" stop-opacity=".9"/>
+      <stop offset="1" stop-color="#ffe7a8" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="g-glint">
+      <stop offset="0" stop-color="#fffbe8"/>
+      <stop offset=".45" stop-color="#ffd987" stop-opacity=".95"/>
+      <stop offset="1" stop-color="#f3b54a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="g-refl" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fffbe8"/>
+      <stop offset=".6" stop-color="#fff2c8" stop-opacity=".75"/>
+      <stop offset="1" stop-color="#ffe9a8" stop-opacity=".2"/>
+    </linearGradient>
+    <filter id="f-soft" x="-200%" y="-10%" width="500%" height="120%"><feGaussianBlur stdDeviation="4 2"/></filter>
+    <filter id="f-glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="14"/></filter>
+    <clipPath id="c-sun"><rect x="0" y="0" width="1254" height="772"/></clipPath>
+  </defs>
+  <g id="mark">
+    <g id="sun" clip-path="url(#c-sun)">
+      <g id="sun-body">
+      <circle id="sun-disc" cx="624.5" cy="567" r="390" fill="url(#g-sun)"/>
+      <circle id="sun-band" cx="624.5" cy="567" r="390" fill="url(#g-band)"/>
+      <circle id="sun-rim" cx="624.5" cy="567" r="388" fill="none" stroke="url(#g-rim)" stroke-width="4" opacity=".75"/>
+      </g>
+    </g>
+    <g id="ripples">
+    <ellipse id="ripple-1" class="ripple" cx="626" cy="839.5" rx="403" ry="33.5" fill="url(#g-ripple)"/>
+    <ellipse id="ripple-2" class="ripple" cx="627.5" cy="912" rx="263.5" ry="26" fill="url(#g-ripple)"/>
+    <ellipse id="ripple-3" class="ripple" cx="627.5" cy="972" rx="144.5" ry="19" fill="url(#g-ripple)"/>
+    </g>
+    <path id="horizon" d="M67 781 Q627.0 735 1187 781 Q627.0 791 67 781Z" fill="url(#g-horizon)"/>
+    <g id="flare">
+      <g id="flare-glow" fill="#ffd877" opacity=".8" filter="url(#f-glow)">
+      <path d="M842.0 657.3 Q772.2 514.3 458.3 286.9 Q696.6 592.6 842.0 657.3Z"/>
+      <path d="M753.6 652.0 Q880.8 595.9 1086.3 330.7 Q814.1 526.8 753.6 652.0Z"/>
+      <path d="M829.7 576.1 Q740.9 608.2 660.6 751.2 Q800.7 666.0 829.7 576.1Z"/>
+      <path d="M759.7 576.7 Q790.2 666.0 931.8 748.8 Q849.0 607.2 759.7 576.7Z"/>
+      </g>
+      <g id="flare-rays" fill="#fffdf6">
+      <path class="ray" id="ray-1" d="M809.7 626.2 Q739.5 534.8 420.9 250.8 Q715.9 559.2 809.7 626.2Z"/>
+      <path class="ray" id="ray-2" d="M782.1 624.5 Q863.7 566.5 1118.7 299.4 Q842.8 544.9 782.1 624.5Z"/>
+      <path class="ray" id="ray-3" d="M805.8 600.8 Q758.8 630.8 645.6 766.7 Q777.5 648.9 805.8 600.8Z"/>
+      <path class="ray" id="ray-4" d="M784.0 601.0 Q813.2 648.6 947.0 764.0 Q831.6 630.2 784.0 601.0Z"/>
+      </g>
+      <rect id="flare-drop" x="793" y="612" width="4" height="160" fill="#fff8e0" opacity=".8"/>
+      <ellipse id="flare-core" cx="795" cy="612" rx="130" ry="130" fill="url(#g-core)"/>
+      <rect id="reflection" x="788" y="758" width="14" height="233" fill="url(#g-refl)" filter="url(#f-soft)"/>
+      <ellipse id="horizon-glint" cx="795" cy="772" rx="80" ry="22" fill="url(#g-glint)"/>
+    </g>
+  </g>
+</svg>
