@@ -554,3 +554,8 @@ footer .authors { margin: 0 0 8px; color: var(--muted); font-size: 14px; }
   .toc-btn { padding: 0 9px; }
   .toc-btn [lang] { display: none; }
 }
+
+/* SolarX-Team blog standard: the logo links to the team home page; the title next to it scrolls to the top. */
+.topbar .brand-group { display: flex; align-items: center; gap: 9px; min-width: 0; margin-right: auto; }
+.topbar .brand-group .name { margin-right: 0; }
+.topbar .team-home { display: block; flex: none; border-radius: 6px; }
